@@ -39,7 +39,7 @@
 
 use std::{fmt, io, ops};
 
-use consensus::encode::{self, Encodable, Decodable};
+use consensus::encode::{self, Decodable, Encodable};
 
 /// Version of the protocol as appearing in network message headers
 pub const PROTOCOL_VERSION: u32 = 70001;
@@ -53,7 +53,17 @@ user_enum! {
         /// Bitcoin's testnet
         Testnet <-> "testnet",
         /// Bitcoin's regtest
-        Regtest <-> "regtest"
+        Regtest <-> "regtest",
+        /// Litecoin's mainnet
+        Litecoin <-> "litecoin",
+        /// Litecoin's testnet
+        LitecoinTest <-> "litecoin_test",
+        /// BitcoinCash's mainnet
+        BitcoinCash <-> "bitcash",
+        /// BitcoinCash's testnet
+        BitcoinCashTest <-> "bitcash_test",
+        /// Dash network
+        Dash <-> "dash"
     }
 }
 
@@ -74,7 +84,188 @@ impl Network {
             0xD9B4BEF9 => Some(Network::Bitcoin),
             0x0709110B => Some(Network::Testnet),
             0xDAB5BFFA => Some(Network::Regtest),
+            _ => None,
+        }
+    }
+
+    /// Returns script hashing salt based on network definitions
+    pub fn address_type(&self) -> Option<u8> {
+        match *self {
+            Network::Bitcoin => Some(0),
+            Network::BitcoinCash => Some(0),
+            Network::Litecoin => Some(48),
+            Network::Dash => Some(76),
+
+            Network::Testnet
+            | Network::Regtest
+            | Network::LitecoinTest
+            | Network::BitcoinCashTest => Some(111),
+        }
+    }
+
+    /// Makes Network from address type
+    pub fn from_address_type(t: u8) -> Option<Network> {
+        match t {
+            0 => Some(Network::Bitcoin),
+            48 => Some(Network::Litecoin),
+            76 => Some(Network::Dash),
+            111 => Some(Network::Testnet),
+            _ => None,
+        }
+    }
+
+    /// Returns pay to script hash salt based on Network
+    pub fn address_type_p2sh(&self) -> Option<u8> {
+        match *self {
+            Network::Bitcoin => Some(5),
+            Network::BitcoinCash => Some(5),
+            Network::Litecoin => Some(50),
+            Network::Dash => Some(16),
+
+            Network::Testnet | Network::BitcoinCashTest | Network::Regtest => Some(196),
+            Network::LitecoinTest => Some(58),
+        }
+    }
+
+    /// Makes Network from address type (p2sh)
+    pub fn from_address_type_p2sh(t: u8) -> Option<Network> {
+        match t {
+            5 => Some(Network::Bitcoin),
+            50 => Some(Network::Litecoin),
+            16 => Some(Network::Dash),
+            196 => Some(Network::Testnet),
+            58 => Some(Network::LitecoinTest),
+            _ => None,
+        }
+    }
+
+    /// Returns WIF encode prefix for selected network
+    pub fn wif_prefix(&self) -> Option<u8> {
+        match *self {
+            Network::Bitcoin => Some(128),
+            Network::Testnet
+            | Network::BitcoinCashTest
+            | Network::LitecoinTest
+            | Network::Regtest => Some(239),
+            Network::Litecoin => Some(176),
+
+            Network::BitcoinCash => Some(128),
+            Network::Dash => Some(204),
+        }
+    }
+
+    /// Makes Network from WIF encoding prefix
+    pub fn from_wif(wif: u8) -> Option<Self> {
+        match wif {
+            128 => Some(Network::Bitcoin),
+            176 => Some(Network::Litecoin),
+            204 => Some(Network::Dash),
+            239 => Some(Network::Regtest),
             _ => None
+        }
+    }
+
+    /// Returns BECH32 prefix for selected network
+    pub fn bech32_prefix(&self) -> Option<&'static str> {
+        match *self {
+            Network::Bitcoin => Some("bc"),
+            Network::Testnet => Some("tb"),
+            Network::LitecoinTest => Some("tltc"),
+            Network::Regtest => Some("bcrt"),
+            Network::Litecoin => Some("ltc"),
+            _ => None,
+        }
+    }
+
+    fn find_bech32_prefix(bech32: &str) -> &str {
+        // Split at the last occurrence of the separator character '1'.
+        match bech32.rfind("1") {
+            None => bech32,
+            Some(sep) => bech32.split_at(sep).0,
+        }
+    }
+
+    /// Makes Network based on BECH32 prefix
+    pub fn from_bech32(bech32: &str) -> Option<Self> {
+        match Network::find_bech32_prefix(bech32) {
+            "bc" | "BC" => Some(Network::Bitcoin),
+            "tb" | "TB" => Some(Network::Testnet),
+            "ltc" | "LTC" => Some(Network::LitecoinTest),
+            "bcrt" | "BCRT" => Some(Network::Regtest),
+            "tltc" | "TLTC" => Some(Network::Litecoin),
+            _ => None,
+        }
+    }
+
+    /// Returns extended private key magic number for selected network
+    pub fn xprv_magic(&self) -> Option<[u8; 4]> {
+        let network_number: Option<u32> = match *self {
+            Network::Bitcoin => Some(76066276),
+            Network::Testnet => Some(70615956),
+            Network::Regtest => Some(70615956),
+            Network::Litecoin => Some(27106558),
+            Network::LitecoinTest => Some(70615956),
+            Network::BitcoinCash => Some(76066276),
+            Network::BitcoinCashTest => Some(70615956),
+            Network::Dash => Some(50221816),
+            // _ => None,
+        };
+        network_number.map(|v| v.to_be_bytes())
+    }
+
+    /// Makes Network from provided extended private key magic number
+    pub fn from_xprv(data: &[u8]) -> Option<Self> {
+        let number: u32 = 0
+            | (data[0] as u32) << 24
+            | (data[1] as u32) << 16
+            | (data[2] as u32) << 8
+            | (data[3] as u32) << 0;
+
+        match number {
+            76066276 => Some(Network::Bitcoin),
+            70615956 => Some(Network::Testnet),
+            27106558 => Some(Network::Litecoin),
+            50221816 => Some(Network::Dash),
+            // 70615956 => Some(Network::Regtest),
+            // 76066276 => Some(Network::BitcoinCash),
+            _ => None,
+        }
+    }
+
+    /// Returns extended public key magic number for selected network
+    pub fn xpub_magic(&self) -> Option<[u8; 4]> {
+        let network_number: Option<u32> = match *self {
+            Network::Bitcoin => Some(76067358),
+            Network::Testnet => Some(70617039),
+            Network::Regtest => Some(70617039),
+            Network::Litecoin => Some(27108450),
+            Network::LitecoinTest => Some(70617039),
+            Network::BitcoinCash => Some(76067358),
+            Network::BitcoinCashTest => Some(70617039),
+            Network::Dash => Some(50221772),
+            // _ => None,
+        };
+        network_number.map(|v| v.to_be_bytes())
+    }
+
+    /// Makes Network from provided extended private key magic number
+    pub fn from_xpub(data: &[u8]) -> Option<Self> {
+        let number: u32 = 0
+            | (data[0] as u32) << 24
+            | (data[1] as u32) << 16
+            | (data[2] as u32) << 8
+            | (data[3] as u32) << 0;
+
+        match number {
+            76067358 => Some(Network::Bitcoin),
+            70617039 => Some(Network::Testnet),
+            27108450 => Some(Network::Litecoin),
+            50221772 => Some(Network::Dash),
+            // 70617039 => Some(Network::Regtest),
+            // 70617039 => Some(Network::LitecoinTest),
+            // 76067358 => Some(Network::BitcoinCash),
+            // 70617039 => Some(Network::BitcoinCashTest),
+            _ => None,
         }
     }
 
@@ -94,7 +285,7 @@ impl Network {
         match *self {
             Network::Bitcoin => 0xD9B4BEF9,
             Network::Testnet => 0x0709110B,
-            Network::Regtest => 0xDAB5BFFA,
+            _ => 0x0,
         }
     }
 }
@@ -125,7 +316,6 @@ impl ServiceFlags {
     /// WITNESS indicates that a node can be asked for blocks and transactions including witness
     /// data.
     pub const WITNESS: ServiceFlags = ServiceFlags(1 << 3);
-    
     /// COMPACT_FILTERS means the node will service basic block filter requests.
     /// See BIP157 and BIP158 for details on how this is implemented.
     pub const COMPACT_FILTERS: ServiceFlags = ServiceFlags(1 << 6);
@@ -194,7 +384,7 @@ impl fmt::Display for ServiceFlags {
                     write!(f, stringify!($f))?;
                     flags.remove(ServiceFlags::$f);
                 }
-            }
+            };
         }
         write!(f, "ServiceFlags(")?;
         write_flag!(NETWORK);
@@ -256,10 +446,7 @@ impl ops::BitXorAssign for ServiceFlags {
 
 impl Encodable for ServiceFlags {
     #[inline]
-    fn consensus_encode<S: io::Write>(
-        &self,
-        mut s: S,
-    ) -> Result<usize, encode::Error> {
+    fn consensus_encode<S: io::Write>(&self, mut s: S) -> Result<usize, encode::Error> {
         self.0.consensus_encode(&mut s)
     }
 }
@@ -338,12 +525,14 @@ mod tests {
 
         let mut flags2 = flags | ServiceFlags::GETUTXO;
         for f in all.iter() {
-            assert_eq!(flags2.has(*f), *f == ServiceFlags::WITNESS || *f == ServiceFlags::GETUTXO);
+            assert_eq!(
+                flags2.has(*f),
+                *f == ServiceFlags::WITNESS || *f == ServiceFlags::GETUTXO
+            );
         }
 
         flags2 ^= ServiceFlags::WITNESS;
         assert_eq!(flags2, ServiceFlags::GETUTXO);
-        
         flags2 |= ServiceFlags::COMPACT_FILTERS;
         flags2 ^= ServiceFlags::GETUTXO;
         assert_eq!(flags2, ServiceFlags::COMPACT_FILTERS);
@@ -354,7 +543,9 @@ mod tests {
         let flag = ServiceFlags::WITNESS | ServiceFlags::BLOOM | ServiceFlags::NETWORK;
         assert_eq!("ServiceFlags(NETWORK|BLOOM|WITNESS)", flag.to_string());
         let flag = ServiceFlags::WITNESS | 0xf0.into();
-        assert_eq!("ServiceFlags(WITNESS|COMPACT_FILTERS|0xb0)", flag.to_string());
+        assert_eq!(
+            "ServiceFlags(WITNESS|COMPACT_FILTERS|0xb0)",
+            flag.to_string()
+        );
     }
 }
-

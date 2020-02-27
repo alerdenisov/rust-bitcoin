@@ -68,6 +68,8 @@ pub enum Error {
     InvalidWitnessProgramLength(usize),
     /// A v0 witness program must be either of length 20 or 32.
     InvalidSegwitV0ProgramLength(usize),
+    /// Unexpected behaviour error
+    UnexpectedBehaviour,
 }
 
 impl fmt::Display for Error {
@@ -87,6 +89,7 @@ impl fmt::Display for Error {
                 "a v0 witness program must be either of length 20 or 32 bytes: length={}",
                 l
             ),
+            Error::UnexpectedBehaviour => write!(f, "Failed with unexpected behaviour")
         }
     }
 }
@@ -369,19 +372,13 @@ impl Display for Address {
         match self.payload {
             Payload::PubkeyHash(ref hash) => {
                 let mut prefixed = [0; 21];
-                prefixed[0] = match self.network {
-                    Network::Bitcoin => 0,
-                    Network::Testnet | Network::Regtest => 111,
-                };
+                prefixed[0] = self.network.address_type().ok_or(fmt::Error)?;
                 prefixed[1..].copy_from_slice(&hash[..]);
                 base58::check_encode_slice_to_fmt(fmt, &prefixed[..])
             }
             Payload::ScriptHash(ref hash) => {
                 let mut prefixed = [0; 21];
-                prefixed[0] = match self.network {
-                    Network::Bitcoin => 5,
-                    Network::Testnet | Network::Regtest => 196,
-                };
+                prefixed[0] = self.network.address_type_p2sh().ok_or(fmt::Error)?;
                 prefixed[1..].copy_from_slice(&hash[..]);
                 base58::check_encode_slice_to_fmt(fmt, &prefixed[..])
             }
@@ -389,11 +386,7 @@ impl Display for Address {
                 version: ver,
                 program: ref prog,
             } => {
-                let hrp = match self.network {
-                    Network::Bitcoin => "bc",
-                    Network::Testnet => "tb",
-                    Network::Regtest => "bcrt",
-                };
+                let hrp = self.network.bech32_prefix().ok_or(fmt::Error)?;
                 let mut bech32_writer = bech32::Bech32Writer::new(hrp, fmt)?;
                 bech32::WriteBase32::write_u5(&mut bech32_writer, ver)?;
                 bech32::ToBase32::write_base32(&prog, &mut bech32_writer)
@@ -402,28 +395,23 @@ impl Display for Address {
     }
 }
 
-/// Extract the bech32 prefix.
-/// Returns the same slice when no prefix is found.
-fn find_bech32_prefix(bech32: &str) -> &str {
-    // Split at the last occurrence of the separator character '1'.
-    match bech32.rfind("1") {
-        None => bech32,
-        Some(sep) => bech32.split_at(sep).0,
-    }
-}
+// /// Extract the bech32 prefix.
+// /// Returns the same slice when no prefix is found.
+// fn find_bech32_prefix(bech32: &str) -> &str {
+//     // Split at the last occurrence of the separator character '1'.
+//     match bech32.rfind("1") {
+//         None => bech32,
+//         Some(sep) => bech32.split_at(sep).0,
+//     }
+// }
 
 impl FromStr for Address {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Address, Error> {
         // try bech32
-        let bech32_network = match find_bech32_prefix(s) {
-            // note that upper or lowercase is allowed but NOT mixed case
-            "bc" | "BC" => Some(Network::Bitcoin),
-            "tb" | "TB" => Some(Network::Testnet),
-            "bcrt" | "BCRT" => Some(Network::Regtest),
-            _ => None,
-        };
+        let bech32_network = Network::from_bech32(s);
+
         if let Some(network) = bech32_network {
             // decode as bech32
             let (_, payload) = bech32::decode(s)?;
@@ -468,30 +456,23 @@ impl FromStr for Address {
             return Err(Error::Base58(base58::Error::InvalidLength(data.len())));
         }
 
-        let (network, payload) = match data[0] {
-            0 => (
-                Network::Bitcoin,
-                Payload::PubkeyHash(PubkeyHash::from_slice(&data[1..]).unwrap()),
-            ),
-            5 => (
-                Network::Bitcoin,
-                Payload::ScriptHash(ScriptHash::from_slice(&data[1..]).unwrap()),
-            ),
-            111 => (
-                Network::Testnet,
-                Payload::PubkeyHash(PubkeyHash::from_slice(&data[1..]).unwrap()),
-            ),
-            196 => (
-                Network::Testnet,
-                Payload::ScriptHash(ScriptHash::from_slice(&data[1..]).unwrap()),
-            ),
-            x => return Err(Error::Base58(base58::Error::InvalidVersion(vec![x]))),
-        };
+        if let Some(network) = Network::from_address_type(data[0]) {
+            let payload = Payload::PubkeyHash(PubkeyHash::from_slice(&data[1..]).map_err(|_| Error::EmptyBech32Payload)?);
+            return Ok(Address {
+                network,
+                payload
+            })
+        }
 
-        Ok(Address {
-            network: network,
-            payload: payload,
-        })
+        if let Some(network) = Network::from_address_type_p2sh(data[0]) {
+            let payload = Payload::ScriptHash(ScriptHash::from_slice(&data[1..]).map_err(|_| Error::EmptyBech32Payload)?);
+            return Ok(Address {
+                network,
+                payload
+            })
+        }
+
+        Err(Error::UnexpectedBehaviour)
     }
 }
 

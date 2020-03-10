@@ -84,6 +84,11 @@ impl Network {
             0xD9B4BEF9 => Some(Network::Bitcoin),
             0x0709110B => Some(Network::Testnet),
             0xDAB5BFFA => Some(Network::Regtest),
+            0xDBB6C0FB => Some(Network::Litecoin),
+            0xF1C8D2FD => Some(Network::LitecoinTest),
+            0xE8F3E1E3 => Some(Network::BitcoinCash),
+            0xF4F3E5F4 => Some(Network::BitcoinCashTest),
+            0xBD6B0CBF => Some(Network::Dash),
             _ => None,
         }
     }
@@ -285,7 +290,12 @@ impl Network {
         match *self {
             Network::Bitcoin => 0xD9B4BEF9,
             Network::Testnet => 0x0709110B,
-            _ => 0x0,
+            Network::Regtest => 0xDAB5BFFA,
+            Network::Litecoin => 0xDBB6C0FB,
+            Network::LitecoinTest => 0xF1C8D2FD,
+            Network::BitcoinCash => 0xE8F3E1E3,
+            Network::BitcoinCashTest => 0xF4F3E5F4,
+            Network::Dash => 0xBD6B0CBF
         }
     }
 }
@@ -497,10 +507,21 @@ mod tests {
         assert_eq!(Network::Bitcoin.to_string(), "bitcoin");
         assert_eq!(Network::Testnet.to_string(), "testnet");
         assert_eq!(Network::Regtest.to_string(), "regtest");
+        assert_eq!(Network::Litecoin.to_string(), "litecoin");
+        assert_eq!(Network::LitecoinTest.to_string(), "litecoin_test");
+        assert_eq!(Network::BitcoinCash.to_string(), "bitcash");
+        assert_eq!(Network::BitcoinCashTest.to_string(), "bitcash_test");
+        assert_eq!(Network::Dash.to_string(), "dash");
 
         assert_eq!("bitcoin".parse::<Network>().unwrap(), Network::Bitcoin);
         assert_eq!("testnet".parse::<Network>().unwrap(), Network::Testnet);
         assert_eq!("regtest".parse::<Network>().unwrap(), Network::Regtest);
+        assert_eq!("litecoin".parse::<Network>().unwrap(), Network::Litecoin);
+        assert_eq!("litecoin_test".parse::<Network>().unwrap(), Network::LitecoinTest);
+        assert_eq!("bitcash".parse::<Network>().unwrap(), Network::BitcoinCash);
+        assert_eq!("bitcash_test".parse::<Network>().unwrap(), Network::BitcoinCashTest);
+        assert_eq!("dash".parse::<Network>().unwrap(), Network::Dash);
+
         assert!("fakenet".parse::<Network>().is_err());
     }
 
